@@ -15,7 +15,6 @@ wss.on("connection", (twilioSocket) => {
   console.log("Twilio connected");
 
   let openaiReady = false;
-  let audioBufferQueue = [];
 
   const openaiSocket = new WebSocket(
     "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview",
@@ -36,41 +35,37 @@ wss.on("connection", (twilioSocket) => {
       type: "session.update",
       session: {
         instructions: `
-Tu es l’agent téléphonique officiel de O'Sezam Pizza.
-Voix naturelle, chaleureuse et professionnelle.
+Tu es l’agent vocal de O'Sezam Pizza.
+Voix naturelle, chaleureuse.
 Pose une seule question à la fois.
-Prends commande complète (pizza/panini, taille, garniture, mode).
-Si livraison → adresse obligatoire.
-Récapitule avant validation.
-Ne parle jamais anglais.
-`
+`,
+        voice: "alloy"
       }
     }));
 
-    // 🔥 Envoie ce qui était bufferisé
-    audioBufferQueue.forEach(audio => {
-      openaiSocket.send(JSON.stringify({
-        type: "input_audio_buffer.append",
-        audio
-      }));
-    });
-
-    audioBufferQueue = [];
+    // 🔥 Lancer première réponse (accueil)
+    openaiSocket.send(JSON.stringify({
+      type: "response.create"
+    }));
   });
 
-  // Twilio → OpenAI
+  // 🔁 Twilio → OpenAI
   twilioSocket.on("message", (msg) => {
     const data = JSON.parse(msg);
 
-    if (data.event === "media") {
-      if (openaiReady) {
-        openaiSocket.send(JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: data.media.payload
-        }));
-      } else {
-        audioBufferQueue.push(data.media.payload);
-      }
+    if (data.event === "media" && openaiReady) {
+      openaiSocket.send(JSON.stringify({
+        type: "input_audio_buffer.append",
+        audio: data.media.payload
+      }));
+
+      openaiSocket.send(JSON.stringify({
+        type: "input_audio_buffer.commit"
+      }));
+
+      openaiSocket.send(JSON.stringify({
+        type: "response.create"
+      }));
     }
 
     if (data.event === "stop") {
@@ -78,7 +73,7 @@ Ne parle jamais anglais.
     }
   });
 
-  // OpenAI → Twilio
+  // 🔁 OpenAI → Twilio
   openaiSocket.on("message", (msg) => {
     const response = JSON.parse(msg.toString());
 
@@ -89,10 +84,6 @@ Ne parle jamais anglais.
           payload: response.delta
         }
       }));
-    }
-
-    if (response.type === "response.completed") {
-      openaiSocket.send(JSON.stringify({ type: "response.create" }));
     }
   });
 
