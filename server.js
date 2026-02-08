@@ -7,12 +7,18 @@ app.use(bodyParser.urlencoded({ extended: false }));
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// mémoire conversation par appel
+let conversations = {};
+
 app.post("/voice", (req, res) => {
+  const callSid = req.body.CallSid;
+  conversations[callSid] = [];
+
   res.type("text/xml");
   res.send(`
 <Response>
-  <Gather input="speech" timeout="5" action="/process" method="POST" language="fr-FR">
-    <Say language="fr-FR">
+  <Gather input="speech" speechTimeout="auto" action="/process" method="POST" language="fr-FR">
+    <Say voice="Polly.Celine" language="fr-FR">
       Bonjour Osezam Pizza. Que souhaitez-vous commander ?
     </Say>
   </Gather>
@@ -21,7 +27,17 @@ app.post("/voice", (req, res) => {
 });
 
 app.post("/process", async (req, res) => {
+  const callSid = req.body.CallSid;
   const userSpeech = req.body.SpeechResult || "";
+
+  if (!conversations[callSid]) {
+    conversations[callSid] = [];
+  }
+
+  conversations[callSid].push({
+    role: "user",
+    content: userSpeech
+  });
 
   try {
     const gptResponse = await axios.post(
@@ -31,18 +47,16 @@ app.post("/process", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: "Tu es un agent vocal pour Osezam Pizza. Tu prends les commandes de pizza et panini de manière naturelle. Si des informations manquent, tu poses une question courte."
+            content:
+              "Tu es un agent vocal naturel pour Osezam Pizza. Réponses courtes, dynamiques, conversationnelles. Pose une seule question à la fois."
           },
-          {
-            role: "user",
-            content: userSpeech
-          }
+          ...conversations[callSid]
         ],
-        temperature: 0.7
+        temperature: 0.6
       },
       {
         headers: {
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
           "Content-Type": "application/json"
         }
       }
@@ -50,31 +64,34 @@ app.post("/process", async (req, res) => {
 
     const reply = gptResponse.data.choices[0].message.content;
 
+    conversations[callSid].push({
+      role: "assistant",
+      content: reply
+    });
+
     res.type("text/xml");
     res.send(`
 <Response>
-  <Say language="fr-FR">
+  <Say voice="Polly.Celine" language="fr-FR">
     ${reply}
   </Say>
-  <Gather input="speech" timeout="5" action="/process" method="POST" language="fr-FR">
+  <Gather input="speech" speechTimeout="auto" action="/process" method="POST" language="fr-FR">
   </Gather>
 </Response>
     `);
 
   } catch (error) {
-    console.error(error.response?.data || error.message);
+    console.error(error.message);
 
     res.type("text/xml");
     res.send(`
 <Response>
   <Say language="fr-FR">
-    Une erreur est survenue. Merci de rappeler.
+    Une erreur technique est survenue. Merci de rappeler.
   </Say>
 </Response>
     `);
   }
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Serveur GPT vocal démarré");
-});
+app.listen(process.env.PORT || 3000);
