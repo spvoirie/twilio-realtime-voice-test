@@ -7,7 +7,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const ELEVEN_VOICE_ID = "101A8UFM73tcrunWGirw";
+const ELEVEN_VOICE_ID = "xlVRtVJbKuO2nwbbopa2";
 
 let conversations = {};
 
