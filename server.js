@@ -8,7 +8,7 @@ app.use(express.json());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const ELEVEN_VOICE_ID = "TON_VOICE_ID_ICI";
+const ELEVEN_VOICE_ID = "101A8UFM73tcrunWGirw";
 
 let conversations = {};
 let audioStore = {};
@@ -114,7 +114,8 @@ Règles strictes :
     const audioUrl = `https://twilio-realtime-voice-test.onrender.com/audio/${audioId}`;
 
     // 🔹 Si commande confirmée → attendre 2 sec puis raccrocher
-    if (reply.includes("Votre commande est confirmée")) {
+    if (reply.toLowerCase().includes("commande est confirmée") && conversations[callSid].length > 4) {
+ {
       res.type("text/xml");
       res.send(`
 <Response>
