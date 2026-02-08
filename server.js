@@ -1,83 +1,80 @@
 const express = require("express");
 const bodyParser = require("body-parser");
+const axios = require("axios");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-let session = {};
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 app.post("/voice", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Gather input="speech" action="/step1" method="POST" language="fr-FR">
+  <Gather input="speech" timeout="5" action="/process" method="POST" language="fr-FR">
     <Say language="fr-FR">
-      Bonjour Osezam Pizza. Quel est votre nom ?
+      Bonjour Osezam Pizza. Que souhaitez-vous commander ?
     </Say>
   </Gather>
 </Response>
   `);
 });
 
-app.post("/step1", (req, res) => {
-  session.nom = req.body.SpeechResult;
+app.post("/process", async (req, res) => {
+  const userSpeech = req.body.SpeechResult || "";
 
-  res.type("text/xml");
-  res.send(`
-<Response>
-  <Gather input="speech" action="/step2" method="POST" language="fr-FR">
-    <Say language="fr-FR">
-      Merci ${session.nom}. Que souhaitez-vous commander ? Pizza ou panini ?
-    </Say>
-  </Gather>
-</Response>
-  `);
-});
+  try {
+    const gptResponse = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "Tu es un agent vocal pour Osezam Pizza. Tu prends les commandes de pizza et panini de manière naturelle. Si des informations manquent, tu poses une question courte."
+          },
+          {
+            role: "user",
+            content: userSpeech
+          }
+        ],
+        temperature: 0.7
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
 
-app.post("/step2", (req, res) => {
-  session.produit = req.body.SpeechResult;
+    const reply = gptResponse.data.choices[0].message.content;
 
-  res.type("text/xml");
-  res.send(`
-<Response>
-  <Gather input="speech" action="/step3" method="POST" language="fr-FR">
-    <Say language="fr-FR">
-      Quelle taille ? Normale ou XL ?
-    </Say>
-  </Gather>
-</Response>
-  `);
-});
-
-app.post("/step3", (req, res) => {
-  session.taille = req.body.SpeechResult;
-
-  res.type("text/xml");
-  res.send(`
-<Response>
-  <Gather input="speech" action="/confirm" method="POST" language="fr-FR">
-    <Say language="fr-FR">
-      Votre commande est-elle complète ?
-    </Say>
-  </Gather>
-</Response>
-  `);
-});
-
-app.post("/confirm", (req, res) => {
-  res.type("text/xml");
-  res.send(`
+    res.type("text/xml");
+    res.send(`
 <Response>
   <Say language="fr-FR">
-    Merci ${session.nom}. Je récapitule.
-    Vous avez commandé ${session.produit} en taille ${session.taille}.
-    Votre commande est confirmée.
+    ${reply}
+  </Say>
+  <Gather input="speech" timeout="5" action="/process" method="POST" language="fr-FR">
+  </Gather>
+</Response>
+    `);
+
+  } catch (error) {
+    console.error(error.response?.data || error.message);
+
+    res.type("text/xml");
+    res.send(`
+<Response>
+  <Say language="fr-FR">
+    Une erreur est survenue. Merci de rappeler.
   </Say>
 </Response>
-  `);
+    `);
+  }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Serveur démarré sur port " + PORT);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Serveur GPT vocal démarré");
 });
