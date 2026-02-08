@@ -13,7 +13,7 @@ const ELEVEN_VOICE_ID = "101A8UFM73tcrunWGirw";
 let conversations = {};
 let audioStore = {};
 
-// 🔹 Servir l'audio
+// 🔹 Servir les fichiers audio Eleven
 app.get("/audio/:id", (req, res) => {
   const audio = audioStore[req.params.id];
   if (!audio) return res.status(404).send("Not found");
@@ -39,7 +39,7 @@ app.post("/voice", (req, res) => {
   `);
 });
 
-// 🔹 Traitement
+// 🔹 Traitement conversation
 app.post("/process", async (req, res) => {
   const callSid = req.body.CallSid;
   const userSpeech = req.body.SpeechResult || "";
@@ -52,6 +52,7 @@ app.post("/process", async (req, res) => {
   });
 
   try {
+    // 🧠 GPT
     const gpt = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -60,16 +61,16 @@ app.post("/process", async (req, res) => {
           {
             role: "system",
             content: `
-Tu es un agent téléphonique professionnel pour O'Sezam Pizza.
+Tu es l'agent téléphonique officiel de O'Sezam Pizza.
 
-Règles strictes :
+RÈGLES STRICTES :
 - Tu poses UNE seule question à la fois.
-- Tu prends la commande exacte : type (pizza ou panini), garniture, taille.
+- Tu prends exactement la commande (pizza ou panini, garniture, taille).
 - Tu demandes si c'est sur place, à emporter ou en livraison.
 - Si livraison → adresse OBLIGATOIRE.
 - Si sur place → pas d'adresse.
 - Tu récapitules clairement la commande avant validation.
-- Quand la commande est validée, termine par : "Votre commande est confirmée."
+- Tu termines UNIQUEMENT par : "Votre commande est confirmée." quand tout est validé.
 `
           },
           ...conversations[callSid]
@@ -91,7 +92,7 @@ Règles strictes :
       content: reply
     });
 
-    // 🔹 ElevenLabs
+    // 🎙 ElevenLabs
     const eleven = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE_ID}`,
       {
@@ -113,9 +114,11 @@ Règles strictes :
 
     const audioUrl = `https://twilio-realtime-voice-test.onrender.com/audio/${audioId}`;
 
-    // 🔹 Si commande confirmée → attendre 2 sec puis raccrocher
-    if (reply.toLowerCase().includes("commande est confirmée") && conversations[callSid].length > 4) {
- {
+    // 🔴 Condition intelligente de fin d'appel
+    if (
+      reply.toLowerCase().includes("votre commande est confirmée") &&
+      conversations[callSid].length > 4
+    ) {
       res.type("text/xml");
       res.send(`
 <Response>
@@ -127,11 +130,12 @@ Règles strictes :
       return;
     }
 
-    // 🔹 Sinon continuer conversation
+    // 🔄 Continuer conversation
     res.type("text/xml");
     res.send(`
 <Response>
   <Play>${audioUrl}</Play>
+  <Pause length="1"/>
   <Gather input="speech" speechTimeout="auto" action="/process" method="POST" language="fr-FR"/>
 </Response>
     `);
@@ -148,4 +152,6 @@ Règles strictes :
   }
 });
 
-app.listen(process.env.PORT || 3000);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Agent vocal ElevenLabs démarré");
+});
