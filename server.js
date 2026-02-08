@@ -1,25 +1,83 @@
-import WebSocket, { WebSocketServer } from "ws";
-import express from "express";
-import http from "http";
+const express = require("express");
+const bodyParser = require("body-parser");
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+app.use(bodyParser.urlencoded({ extended: false }));
 
-wss.on("connection", (ws) => {
-  console.log("Twilio connected");
+// stockage temporaire (POC uniquement)
+let session = {};
 
-  ws.on("message", (message) => {
-    console.log("Received:", message.toString());
-    ws.send(message);
-  });
-
-  ws.on("close", () => {
-    console.log("Connection closed");
-  });
+app.post("/voice", (req, res) => {
+  res.type("text/xml");
+  res.send(`
+    <Response>
+      <Gather input="speech" action="/step1" method="POST" language="fr-FR">
+        <Say language="fr-FR">
+          Bonjour Osezam Pizza. Quel est votre nom ?
+        </Say>
+      </Gather>
+    </Response>
+  `);
 });
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.post("/step1", (req, res) => {
+  session.nom = req.body.SpeechResult;
+
+  res.type("text/xml");
+  res.send(`
+    <Response>
+      <Gather input="speech" action="/step2" method="POST" language="fr-FR">
+        <Say language="fr-FR">
+          Merci ${session.nom}. Que souhaitez-vous commander ? Pizza ou panini ?
+        </Say>
+      </Gather>
+    </Response>
+  `);
 });
+
+app.post("/step2", (req, res) => {
+  session.produit = req.body.SpeechResult;
+
+  res.type("text/xml");
+  res.send(`
+    <Response>
+      <Gather input="speech" action="/step3" method="POST" language="fr-FR">
+        <Say language="fr-FR">
+          Quelle taille ? Normale ou XL ?
+        </Say>
+      </Gather>
+    </Response>
+  `);
+});
+
+app.post("/step3", (req, res) => {
+  session.taille = req.body.SpeechResult;
+
+  res.type("text/xml");
+  res.send(`
+    <Response>
+      <Gather input="speech" action="/confirm" method="POST" language="fr-FR">
+        <Say language="fr-FR">
+          Votre commande est-elle complète ?
+        </Say>
+      </Gather>
+    </Response>
+  `);
+});
+
+app.post("/confirm", (req, res) => {
+  res.type("text/xml");
+  res.send(`
+    <Response>
+      <Say language="fr-FR">
+        Merci ${session.nom}. Je récapitule.
+        Vous avez commandé ${session.produit} en taille ${session.taille}.
+        Votre commande est confirmée.
+      </Say>
+    </Response>
+  `);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Serveur démarré sur p
