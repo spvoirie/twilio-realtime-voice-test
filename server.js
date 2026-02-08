@@ -1,59 +1,50 @@
 import express from "express";
 import { WebSocketServer } from "ws";
-import OpenAI from "openai";
+import WebSocket from "ws";
 import http from "http";
 
 const app = express();
 const server = http.createServer(app);
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const wss = new WebSocketServer({ server, path: "/media" });
 
-wss.on("connection", async (twilioSocket) => {
+wss.on("connection", (twilioSocket) => {
 
   console.log("Twilio connected");
 
-  const openaiSocket = await openai.beta.realtime.connect({
-    model: "gpt-4o-realtime-preview"
-  });
+  // 🔥 Connexion WebSocket directe OpenAI
+  const openaiSocket = new WebSocket(
+    "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview",
+    {
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "OpenAI-Beta": "realtime=v1"
+      }
+    }
+  );
 
-  // 🎯 PROMPT COMPLET AGENT O'SEZAM
-  openaiSocket.send({
-    type: "session.update",
-    session: {
-      instructions: `
+  openaiSocket.on("open", () => {
+    console.log("Connected to OpenAI realtime");
+
+    // 🎯 Prompt O'Sezam
+    openaiSocket.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        instructions: `
 Tu es l’agent téléphonique officiel de O'Sezam Pizza.
 
-🎙 Ton ton :
-- Voix posée, chaleureuse et professionnelle.
-- Naturel, fluide, humain.
-- Commercial sans être insistant.
-
-📋 Règles strictes :
-
-1. Tu poses UNE seule question à la fois.
-2. Tu prends une commande complète :
-   - Pizza ou panini
-   - Garniture
-   - Taille (normale ou XL)
-   - Mode : sur place, à emporter ou livraison
-3. Si livraison → adresse OBLIGATOIRE avant validation.
-4. Si sur place ou à emporter → ne demande pas l’adresse.
-5. Tu reformules toujours la commande complète avant validation.
-6. Tu demandes : "Je vous confirme la commande ?"
-7. Tu termines uniquement par :
-   "Votre commande est confirmée, merci et à très bientôt chez O'Sezam Pizza."
-
-⚠️ Important :
-- Ne parle jamais anglais.
-- Ne pose jamais plusieurs questions en même temps.
-- Reste synthétique et clair.
+Voix naturelle, chaleureuse et professionnelle.
+Une seule question à la fois.
+Prends commande complète (pizza/panini, taille, garniture, mode).
+Si livraison → adresse obligatoire.
+Récapitule avant validation.
+Ne parle jamais anglais.
 `,
-      voice: "alloy"
-    }
+        voice: "alloy"
+      }
+    }));
   });
 
   // 🔁 Twilio → OpenAI
@@ -61,10 +52,10 @@ Tu es l’agent téléphonique officiel de O'Sezam Pizza.
     const data = JSON.parse(msg);
 
     if (data.event === "media") {
-      openaiSocket.send({
+      openaiSocket.send(JSON.stringify({
         type: "input_audio_buffer.append",
         audio: data.media.payload
-      });
+      }));
     }
 
     if (data.event === "stop") {
@@ -72,28 +63,28 @@ Tu es l’agent téléphonique officiel de O'Sezam Pizza.
     }
   });
 
-  // 🔥 On commit régulièrement l'audio pour générer réponse
-  const interval = setInterval(() => {
-    openaiSocket.send({ type: "input_audio_buffer.commit" });
-    openaiSocket.send({ type: "response.create" });
-  }, 1000);
-
   // 🔁 OpenAI → Twilio
   openaiSocket.on("message", (msg) => {
-    const response = JSON.parse(msg);
+    const response = JSON.parse(msg.toString());
 
     if (response.type === "response.output_audio.delta") {
       twilioSocket.send(JSON.stringify({
         event: "media",
-        media: { payload: response.delta }
+        media: {
+          payload: response.delta
+        }
       }));
+    }
+
+    if (response.type === "response.completed") {
+      // On prépare prochaine réponse
+      openaiSocket.send(JSON.stringify({ type: "response.create" }));
     }
   });
 
   twilioSocket.on("close", () => {
-    clearInterval(interval);
-    openaiSocket.close();
     console.log("Connection closed");
+    openaiSocket.close();
   });
 
 });
