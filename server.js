@@ -33,18 +33,6 @@ app.post("/voice", (req, res) => {
 });
 
 app.post("/process", async (req, res) => {
-
-  // 🔹 Réponse immédiate pour éviter timeout
-  res.type("text/xml");
-  res.send(`
-<Response>
-  <Say>Un instant s'il vous plaît.</Say>
-  <Redirect method="POST">/generate</Redirect>
-</Response>
-  `);
-});
-
-app.post("/generate", async (req, res) => {
   try {
     const userSpeech = req.body.SpeechResult || "";
 
@@ -54,12 +42,10 @@ app.post("/generate", async (req, res) => {
       {
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: "Agent O'Sezam Pizza. Réponses courtes et naturelles."
-          },
+          { role: "system", content: "Agent O'Sezam Pizza. Réponses très courtes. Une seule question à la fois." },
           { role: "user", content: userSpeech }
-        ]
+        ],
+        max_tokens: 100
       },
       {
         headers: {
@@ -97,6 +83,7 @@ app.post("/generate", async (req, res) => {
     res.send(`
 <Response>
   <Play>${audioUrl}</Play>
+  <Gather input="speech" action="/process" method="POST" language="fr-FR"/>
 </Response>
     `);
 
