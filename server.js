@@ -4,7 +4,6 @@ const bodyParser = require("body-parser");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// stockage temporaire (POC uniquement)
 let session = {};
 
 app.post("/voice", (req, res) => {
@@ -80,4 +79,4 @@ app.post("/confirm", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Serveur démarré sur p
+  consol
