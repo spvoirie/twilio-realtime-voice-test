@@ -14,7 +14,9 @@ wss.on("connection", (twilioSocket) => {
 
   console.log("Twilio connected");
 
-  // 🔥 Connexion WebSocket directe OpenAI
+  let openaiReady = false;
+  let audioBufferQueue = [];
+
   const openaiSocket = new WebSocket(
     "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview",
     {
@@ -28,34 +30,47 @@ wss.on("connection", (twilioSocket) => {
   openaiSocket.on("open", () => {
     console.log("Connected to OpenAI realtime");
 
-    // 🎯 Prompt O'Sezam
+    openaiReady = true;
+
     openaiSocket.send(JSON.stringify({
       type: "session.update",
       session: {
         instructions: `
 Tu es l’agent téléphonique officiel de O'Sezam Pizza.
-
 Voix naturelle, chaleureuse et professionnelle.
-Une seule question à la fois.
+Pose une seule question à la fois.
 Prends commande complète (pizza/panini, taille, garniture, mode).
 Si livraison → adresse obligatoire.
 Récapitule avant validation.
 Ne parle jamais anglais.
-`,
-        voice: "alloy"
+`
       }
     }));
+
+    // 🔥 Envoie ce qui était bufferisé
+    audioBufferQueue.forEach(audio => {
+      openaiSocket.send(JSON.stringify({
+        type: "input_audio_buffer.append",
+        audio
+      }));
+    });
+
+    audioBufferQueue = [];
   });
 
-  // 🔁 Twilio → OpenAI
+  // Twilio → OpenAI
   twilioSocket.on("message", (msg) => {
     const data = JSON.parse(msg);
 
     if (data.event === "media") {
-      openaiSocket.send(JSON.stringify({
-        type: "input_audio_buffer.append",
-        audio: data.media.payload
-      }));
+      if (openaiReady) {
+        openaiSocket.send(JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: data.media.payload
+        }));
+      } else {
+        audioBufferQueue.push(data.media.payload);
+      }
     }
 
     if (data.event === "stop") {
@@ -63,7 +78,7 @@ Ne parle jamais anglais.
     }
   });
 
-  // 🔁 OpenAI → Twilio
+  // OpenAI → Twilio
   openaiSocket.on("message", (msg) => {
     const response = JSON.parse(msg.toString());
 
@@ -77,13 +92,11 @@ Ne parle jamais anglais.
     }
 
     if (response.type === "response.completed") {
-      // On prépare prochaine réponse
       openaiSocket.send(JSON.stringify({ type: "response.create" }));
     }
   });
 
   twilioSocket.on("close", () => {
-    console.log("Connection closed");
     openaiSocket.close();
   });
 
