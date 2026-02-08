@@ -15,40 +15,40 @@ if (!fs.existsSync(AUDIO_DIR)) {
   fs.mkdirSync(AUDIO_DIR);
 }
 
-let conversations = {};
-
-// 🔹 Servir audio
 app.get("/audio/:file", (req, res) => {
   const filePath = path.join(AUDIO_DIR, req.params.file);
+  if (!fs.existsSync(filePath)) return res.status(404).send("Not found");
   res.sendFile(filePath);
 });
 
-// 🔹 Appel entrant
 app.post("/voice", (req, res) => {
-  const callSid = req.body.CallSid;
-  conversations[callSid] = [];
-
   res.type("text/xml");
   res.send(`
 <Response>
-  <Gather input="speech" speechTimeout="auto" action="/process" method="POST" language="fr-FR">
+  <Gather input="speech" action="/process" method="POST" language="fr-FR">
     <Say>Bonjour, vous êtes bien chez O'Sezam Pizza. Que souhaitez-vous commander ?</Say>
   </Gather>
 </Response>
   `);
 });
 
-// 🔹 Traitement conversation
 app.post("/process", async (req, res) => {
-  const callSid = req.body.CallSid;
-  const userSpeech = req.body.SpeechResult || "";
 
-  if (!conversations[callSid]) conversations[callSid] = [];
+  // 🔹 Réponse immédiate pour éviter timeout
+  res.type("text/xml");
+  res.send(`
+<Response>
+  <Say>Un instant s'il vous plaît.</Say>
+  <Redirect method="POST">/generate</Redirect>
+</Response>
+  `);
+});
 
-  conversations[callSid].push({ role: "user", content: userSpeech });
-
+app.post("/generate", async (req, res) => {
   try {
-    // 🧠 GPT
+    const userSpeech = req.body.SpeechResult || "";
+
+    // GPT
     const gpt = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -56,23 +56,10 @@ app.post("/process", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: `
-Tu es l'agent téléphonique officiel de O'Sezam Pizza.
-
-Règles :
-- Une seule question à la fois.
-- Prendre pizza ou panini.
-- Demander garniture.
-- Demander taille.
-- Demander sur place, à emporter ou livraison.
-- Si livraison → adresse obligatoire.
-- Récapituler clairement.
-- Terminer uniquement par "Votre commande est confirmée." quand tout est validé.
-`
+            content: "Agent O'Sezam Pizza. Réponses courtes et naturelles."
           },
-          ...conversations[callSid]
-        ],
-        temperature: 0.4
+          { role: "user", content: userSpeech }
+        ]
       },
       {
         headers: {
@@ -84,9 +71,7 @@ Règles :
 
     const reply = gpt.data.choices[0].message.content;
 
-    conversations[callSid].push({ role: "assistant", content: reply });
-
-    // 🎙 Eleven
+    // Eleven
     const eleven = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE_ID}`,
       {
@@ -108,44 +93,22 @@ Règles :
 
     const audioUrl = `https://twilio-realtime-voice-test.onrender.com/audio/${filename}`;
 
-    // 🔴 Fin d'appel si confirmé
-    if (
-      reply.toLowerCase().includes("votre commande est confirmée") &&
-      conversations[callSid].length > 4
-    ) {
-      res.type("text/xml");
-      res.send(`
-<Response>
-  <Play>${audioUrl}</Play>
-  <Pause length="2"/>
-  <Hangup/>
-</Response>
-      `);
-      return;
-    }
-
-    // 🔄 Continuer conversation
     res.type("text/xml");
     res.send(`
 <Response>
   <Play>${audioUrl}</Play>
-  <Pause length="1"/>
-  <Gather input="speech" speechTimeout="auto" action="/process" method="POST" language="fr-FR"/>
 </Response>
     `);
 
   } catch (err) {
     console.error(err.response?.data || err.message);
-
     res.type("text/xml");
     res.send(`
 <Response>
-  <Say>Erreur technique.</Say>
+  <Say>Une erreur est survenue.</Say>
 </Response>
     `);
   }
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Agent vocal GPT + Eleven actif");
-});
+app.listen(process.env.PORT || 3000);
